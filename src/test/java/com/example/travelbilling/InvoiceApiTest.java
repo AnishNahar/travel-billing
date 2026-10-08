@@ -22,7 +22,9 @@ class InvoiceApiTest extends ApiTestBase {
         JsonNode expected = expectedInvoice.get("totals");
         assertThat(invoice.get("currency").asText()).isEqualTo(expectedInvoice.get("currency").asText());
         assertMoney(invoice.at("/totals/grand_total"), "685.70");
-        assertThat(money(invoice.at("/totals/grand_total"))).isEqualByComparingTo(money(expected.get("grand_total")));
+        // Every key of expected-invoice.json "totals" (flight, hotel, rail, trip_fee, agent_call_fee, grand_total).
+        expected.fieldNames().forEachRemaining(key -> assertThat(money(invoice.get("totals").get(key)))
+                .as("totals." + key).isEqualByComparingTo(money(expected.get(key))));
 
         JsonNode lines = invoice.get("lines");
         assertThat(lines.size()).isGreaterThanOrEqualTo(expectedInvoice.get("line_count_minimum").asInt());
@@ -98,6 +100,7 @@ class InvoiceApiTest extends ApiTestBase {
 
         JsonNode invoice = api.get("/invoices/" + invoiceId).body();
         JsonNode flightLine = invoice.get("lines").get(0);
+        assertMoney(invoice.at("/totals/flight"), "220.00");
         assertMoney(flightLine.get("total"), "220.00");
         assertMoney(flightLine.at("/snapshot/total"), "220.00");
         assertMoney(flightLine.at("/snapshot/tax_lines/0/amount"), "15.00");
@@ -133,7 +136,7 @@ class InvoiceApiTest extends ApiTestBase {
         assertMoney(api.get("/transactions/" + ids.get("flight")).body().get("total"), "220.00");
         JsonNode invoice = api.get("/invoices/" + invoiceId).body();
         assertMoney(invoice.at("/totals/grand_total"), "685.70");
-        assertMoney(invoice.at("/lines/0/total"), "220.00");
+        assertMoney(invoice.at("/totals/flight"), "220.00");
     }
 
     // Required test 8
@@ -205,6 +208,7 @@ class InvoiceApiTest extends ApiTestBase {
         assertThat(patched.body().get("id").asText()).isEqualTo(invoiceId);
         assertThat(patched.body().get("lines")).hasSize(2);
         assertMoney(patched.body().at("/totals/grand_total"), "425.70");
+        assertThat(patched.body().get("totals").has("flight")).isFalse();
         assertThat(patched.body().at("/tax_rollup/0/name").asText()).isEqualTo("VAT");
         assertThat(patched.body().at("/fee_rollup/0/name").asText()).isEqualTo("Booking fee");
 

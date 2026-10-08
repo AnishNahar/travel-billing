@@ -41,6 +41,7 @@ The tests boot the real app on a random port and call it over HTTP, using a fres
 | 8 | DELETE invoiced transaction → 409, row still there | `InvoiceApiTest.deletingAnInvoicedTransactionIs409AndTheRowStays` |
 | 9 | DELETE invoice keeps its transactions | `InvoiceApiTest.deletingAnInvoiceKeepsItsTransactions` |
 | 10 | List: default 50, `limit=1000` → 400 | `PaginationTest` |
+| + | Overlapping PATCHes never leave a mix of two writers' `tax_lines`/`fee_lines` | `ConcurrentUpdateTest` |
 
 ## API
 
@@ -63,9 +64,12 @@ Choices the brief left open:
   The identity check runs *before* body validation, so a retried booking always gets its existing id back, even if
   the retry body is incomplete (the fixture `duplicate_flight` has no coupons).
 - **The same transaction id twice on one invoice → `409`** (`duplicate_transaction_id`). Never silently de-duplicated.
+  A transaction *may* be on more than one invoice (e.g. a re-issued invoice). Once it is on any invoice it is
+  frozen: PATCH and DELETE return 409.
 - **`limit` > 100 → `400`**, not capped silently. Default `limit` is 50.
 - **Pagination is keyset (cursor), newest first.** Each page returns `next_cursor` while there may be more rows; pass
-  it back as `?cursor=`. There is no `offset`, because OFFSET reads and throws away every skipped row.
+  it back as `?cursor=`. There is no `offset`, because OFFSET reads and throws away every skipped row. If the last
+  page happens to be exactly full, its `next_cursor` returns one empty page.
 - **Money** is `BigDecimal` / `DECIMAL(19,2)` — exactly 2 decimal places, never `double`. Amounts with more than
   2 decimals are rejected with 400, not rounded. Negative amounts are rejected. Tax `rate` is a fraction
   (`0.07` = 7 %), `DECIMAL(9,6)`.
@@ -74,8 +78,21 @@ Choices the brief left open:
   `external_id` cannot change.
 - **`total` is authoritative.** It is the client's gross amount; the service does not recompute it from the fare,
   taxes and fees.
-- Invoice `totals.tax_total` and `totals.fee_total` are informational. They are already inside `grand_total`,
-  which is the sum of the gross transaction totals.
+- Invoice `totals` has one key per kind present — `flight`, `hotel`, `rail`, `trip_fee`, `agent_call_fee` — plus
+  `grand_total`, the same shape as `expected-invoice.json`. `tax_total` and `fee_total` are informational: they are
+  already inside `grand_total`, which is the sum of the gross transaction totals.
+
+## Database, indexes and volume
+
+The schema is [`V1__init.sql`](src/main/resources/db/migration/V1__init.sql); Flyway applies it on startup.
+
+| Need | Where it lives in the schema |
+|---|---|
+| One row per `external_id`, even under concurrent POSTs | `uq_transactions_external_id`: a UNIQUE constraint (unique index) on `transactions.external_id` |
+| Cheap `GET /transactions/{id}` and `GET /invoices/{id}` | Primary keys; child rows are keyed `(transaction_id, line_no)` and `(invoice_id, line_no)` |
+| Cheap "is this transaction on an invoice?" (PATCH/DELETE check) | `ix_invoice_lines_transaction_id`, plus a foreign key so the database itself refuses to delete an invoiced transaction |
+| Bounded lists | `ORDER BY id DESC LIMIT :limit` with a keyset cursor (`WHERE id < :cursor`). `limit` defaults to 50, max 100. Nothing is paginated in memory |
+| Atomic writes | Header, tax lines, fee lines and metadata are written in one database transaction; PATCH/DELETE hold a row lock (`SELECT … FOR UPDATE`) |
 
 ## Example curls
 
@@ -125,7 +142,8 @@ curl -s 'localhost:8080/transactions?limit=1000'              # 400
 ```bash
 curl -s -X POST localhost:8080/invoices -H 'Content-Type: application/json' \
   -d '{"transaction_ids":["txn_1","txn_2","txn_3","txn_4","txn_5"]}'
-# 201 inv_1, totals.grand_total = 685.70, tax_rollup [Airport tax 15.00, VAT 0.07 21.70], fee_rollup [YQ 25.00, Booking fee 4.00]
+# 201 inv_1, totals {flight 220.00, hotel 331.70, rail 94.00, trip_fee 25.00, agent_call_fee 15.00, grand_total 685.70}
+# tax_rollup [Airport tax 15.00, VAT 0.07 21.70], fee_rollup [YQ 25.00, Booking fee 4.00]
 curl -s -X POST localhost:8080/invoices -H 'Content-Type: application/json' -d '{"transaction_id":"txn_4"}'
 # 201 inv_2 (single-id shape)
 ```

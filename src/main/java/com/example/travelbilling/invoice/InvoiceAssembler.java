@@ -67,7 +67,7 @@ public class InvoiceAssembler {
         BigDecimal feeTotal = feeRollup.stream().map(FeeRollupLine::amount).reduce(Money.zero(), BigDecimal::add);
 
         return new InvoiceDraft(currencies.first(), lines, taxRollup, feeRollup,
-                new InvoiceTotals(taxTotal, feeTotal, Money.normalize(grandTotal)));
+                new InvoiceTotals(InvoiceTotals.byKind(lines), taxTotal, feeTotal, Money.normalize(grandTotal)));
     }
 
     private record TaxKey(String name, BigDecimal rate) {

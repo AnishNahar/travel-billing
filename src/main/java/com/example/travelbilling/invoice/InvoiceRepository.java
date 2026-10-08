@@ -79,7 +79,7 @@ public class InvoiceRepository {
                         List.of(),
                         List.of(),
                         List.of(),
-                        new InvoiceTotals(rs.getBigDecimal("tax_total"), rs.getBigDecimal("fee_total"),
+                        new InvoiceTotals(Map.of(), rs.getBigDecimal("tax_total"), rs.getBigDecimal("fee_total"),
                                 rs.getBigDecimal("grand_total")),
                         Sql.instant(rs, "created_at"),
                         Sql.instant(rs, "updated_at")));
@@ -108,7 +108,9 @@ public class InvoiceRepository {
                 "SELECT name, amount FROM invoice_fee_rollup WHERE invoice_id = :id ORDER BY line_no",
                 params, (rs, n) -> new FeeRollupLine(rs.getString("name"), rs.getBigDecimal("amount")));
 
-        return Optional.of(new Invoice(id, header.currency(), lines, taxRollup, feeRollup, header.totals(),
+        InvoiceTotals totals = new InvoiceTotals(InvoiceTotals.byKind(lines), header.totals().taxTotal(),
+                header.totals().feeTotal(), header.totals().grandTotal());
+        return Optional.of(new Invoice(id, header.currency(), lines, taxRollup, feeRollup, totals,
                 header.createdAt(), header.updatedAt()));
     }
 

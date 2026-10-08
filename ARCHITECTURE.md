@@ -45,7 +45,8 @@ and the invoice rollups all keep them separate.
 - the full record (tax lines, fee lines, metadata) as an immutable JSON document in `snapshot`
 
 The tax rollup (grouped by `name` + `rate`, in first-appearance order) and the fee rollup (grouped by `name`) go in
-`invoice_tax_rollup` and `invoice_fee_rollup`. Totals go on the `invoices` row. `GET /invoices/{id}` reads only these
+`invoice_tax_rollup` and `invoice_fee_rollup`. Totals go on the `invoices` row; the per-kind totals (`flight`,
+`hotel`, `rail`, `trip_fee`, `agent_call_fee`) are summed from the snapshot lines. `GET /invoices/{id}` reads only these
 tables and never joins back to `transactions`. The test changes the stored flight with SQL and the invoice still
 shows 220.00.
 
@@ -62,6 +63,8 @@ money aggregates are columns.
   capture half of an edit.
 - The `invoice_lines.transaction_id` foreign key has no `ON DELETE`, so the database also refuses to delete an
   invoiced transaction.
+- A transaction may sit on several invoices (e.g. a re-issue); only listing it twice on one invoice is a 409. If the
+  business wants "billed at most once", that is one extra `UNIQUE (transaction_id)` on `invoice_lines`.
 - `PATCH /invoices/{id}` locks the invoice row, then deletes and rewrites its lines and rollups in one database
   transaction. Any error (404 or mixed currency) rolls back and leaves the old snapshot in place.
 
