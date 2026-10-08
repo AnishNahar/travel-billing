@@ -1,0 +1,4 @@
+# Keep the Maven wrapper runnable on every OS: shell scripts LF, Windows batch CRLF.
+mvnw        text eol=lf
+*.sh        text eol=lf
+*.cmd       text eol=crlf
