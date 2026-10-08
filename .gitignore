@@ -1,0 +1,15 @@
+# Build output and local databases
+target/
+data/
+*.mv.db
+*.trace.db
+
+# Secrets (none are needed, but never commit them)
+.env
+*.env
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
